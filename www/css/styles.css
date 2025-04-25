@@ -1,0 +1,26 @@
+/* Prevent horizontal overflow */
+body, html {
+  overflow-x: hidden;
+}
+
+/* Make slider images responsive */
+.image-slider {
+  width: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  object-fit: cover;
+  /* specify in rem */
+  max-height: 400px;
+}
+.image-slider .slick-slide {
+  text-align: center;
+}
+.image-slider img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+.slick-prev:before, .slick-next:before {
+    color: black;
+}
