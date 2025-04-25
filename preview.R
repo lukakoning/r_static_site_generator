@@ -6,11 +6,11 @@
 #   when changes are detected
 
 serve_static_site <- function(
-  port = 8081,
-  dir = "www",
-  watch = TRUE,
-  watch_dir = "R",
-  watch_dependencies_file = "dependencies.R"
+    port = 8081,
+    dir = "www",
+    watch = TRUE,
+    watch_dir = "R",
+    watch_dependencies_file = "dependencies.R"
 ) {
   if (!dir.exists(dir)) {
     stop(paste("Output directory not found:", dir))
@@ -20,6 +20,10 @@ serve_static_site <- function(
   }
 
   last_mtime <- NULL
+
+  update_timestamp <- function() {
+    write(as.character(Sys.time()), file.path(dir, "timestamp.txt"))
+  }
 
   # File watcher function
   check_for_changes <- function() {
@@ -46,21 +50,18 @@ serve_static_site <- function(
         if (watch_dependencies_file %in% changed_files) {
           cli::cli_alert_info(
             paste0(
-              "`",
-              watch_dependencies_file,
-              "` changed. Re-installing dependencies and rebuilding site..."
+              "`", watch_dependencies_file,
+              "` changed. Re-installing dependencies and rebuilding + refreshing site..."
             )
           )
           try(source(watch_dependencies_file), silent = TRUE)
           try(install_npm_dependencies(), silent = TRUE)
           try(build_site(), silent = TRUE)
-          cli::cli_alert_info("Refresh the page to see changes")
+          update_timestamp()
         } else if (any(grepl(watch_dir, changed_files))) {
-          cli::cli_alert_info(
-            "Changes detected in watch directory. Rebuilding site..."
-          )
+          cli::cli_alert_info("Changes detected in watch directory. Rebuilding + refreshing site...")
           try(build_site(), silent = TRUE)
-          cli::cli_alert_info("Refresh the page to see changes")
+          update_timestamp()
         }
 
         last_mtime <<- current_mtime
@@ -80,11 +81,42 @@ serve_static_site <- function(
 
     if (file.exists(full_path)) {
       content_type <- mime::guess_type(full_path)
-      list(
-        status = 200L,
-        headers = list('Content-Type' = content_type),
-        body = readBin(full_path, "raw", file.info(full_path)$size)
-      )
+
+      if (grepl("\\.html?$", full_path)) {
+        content <- readChar(full_path, file.info(full_path)$size, useBytes = TRUE)
+        reload_script <- "
+          <script>
+          setInterval(() => {
+            fetch('/timestamp.txt')
+              .then(r => r.text())
+              .then(ts => {
+                if (window.lastTimestamp && window.lastTimestamp !== ts) {
+                  location.reload();
+                }
+                window.lastTimestamp = ts;
+              });
+          }, 2000);
+          </script>
+        "
+        # Inject before </body> or append to end
+        if (grepl("</body>", content, ignore.case = TRUE)) {
+          content <- sub("</body>", paste0(reload_script, "\n</body>"), content, ignore.case = TRUE)
+        } else {
+          content <- paste0(content, reload_script)
+        }
+
+        return(list(
+          status = 200L,
+          headers = list('Content-Type' = content_type),
+          body = charToRaw(content)
+        ))
+      } else {
+        return(list(
+          status = 200L,
+          headers = list('Content-Type' = content_type),
+          body = readBin(full_path, "raw", file.info(full_path)$size)
+        ))
+      }
     } else {
       list(
         status = 404L,
@@ -112,13 +144,12 @@ serve_static_site <- function(
       watch_dependencies_file,
       "' and '",
       watch_dir,
-      "'; will automatically rebuild & refresh site..."
+      "'; will automatically rebuild site..."
     ))
   } else {
     cli::cli_alert_info(paste0(
       "Not watching for changes; rebuild site manually with",
-      " 'install_npm_dependencies()' and 'build_site()'",
-      " (refresh page afterwards)"
+      " 'install_npm_dependencies()' and 'build_site()' (refresh page after)"
     ))
   }
 
